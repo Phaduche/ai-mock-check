@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI 예상문제 점검표</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<h1>AI 예상문제 점검표</h1>
+<p class="small">AI가 만든 예상문제를 붙여 넣으면 문제 유형, 예상 난이도, 학교 기출과의 차이를 보여 줍니다. 붙여 넣은 문제는 이 브라우저 밖으로 보내지 않습니다.</p>
+
+<h2>1. 문제 붙여 넣기</h2>
+<label for="unit">단원 이름 (다시 요청 문장에 들어갑니다)</label>
+<input type="text" id="unit" placeholder="예: 통합과학2 화학 변화">
+<label for="base">비교할 기출 기준</label>
+<select id="base"></select>
+<p class="small">기준 파일이 따로 있으면 <input type="file" id="basefile" accept=".json,application/json"> · <a href="baseline.html">기출로 기준 만들기</a></p>
+<p class="small" id="basenote"></p>
+<label for="raw">AI가 준 답 전체</label>
+<textarea id="raw" placeholder="AI 앱에서 받은 예상문제를 정답·해설까지 통째로 복사해서 붙여 넣으세요."></textarea>
+<button id="check">점검하기</button><button id="sample">예시 넣기</button>
+<p class="err" id="err"></p>
+
+<div id="result" class="hidden">
+  <h2>2. 기출과 비교</h2>
+  <p>기출과 닮은 정도 <span class="big" id="sim"></span> <span class="small">(100%면 기출과 비율이 같음)</span></p>
+  <div id="bars"></div>
+  <ul class="gaps" id="gaps"></ul>
+  <p id="warn"></p>
+
+  <h2>3. 문항별 결과</h2>
+  <p class="small" id="count"></p>
+  <table><thead><tr><th>번호</th><th>문제</th><th>유형</th><th>예상 난이도</th><th>근거</th><th id="rateHead">기출 정답률</th></tr></thead><tbody id="rows"></tbody></table>
+  <p class="small">유형과 난이도는 문장 속 표시(&lt;보기&gt;, 표·그래프, 단위가 붙은 숫자 등)를 보고 정한 추정값입니다. 실제로 몇 명이 맞혔는지가 아닙니다. 기출 정답률은 기준에 학교 문항분석표 정답률이 들어 있을 때만 보입니다.</p>
+
+  <h2>4. 다시 요청하기</h2>
+  <p>아래 문장을 AI에게 보내고, 새로 받은 답을 1번 칸에 붙여 넣은 뒤 다시 점검하세요.</p>
+  <textarea id="prompt" readonly style="min-height:150px"></textarea>
+  <button id="copy">문장 복사</button> <span class="small" id="copied"></span>
+  <table class="hidden" id="histTable"><thead><tr><th>점검</th><th>시각</th><th>문항 수</th><th>닮은 정도</th></tr></thead><tbody id="hist"></tbody></table>
+
+  <h2>5. 풀어 보기</h2>
+  <p>이 세트를 직접 풀고 유형별로 몇 % 맞혔는지 봅니다.</p>
+  <button id="solve">풀어 보기 시작</button>
+  <div id="quiz"></div>
+  <div id="score"></div>
+</div>
+
+<p class="small" style="margin-top:40px">MOCKGAP 연구 도구 · <a href="https://github.com/Phaduche/ai-mock-check">코드</a></p>
+<script src="classify.js"></script>
+<script src="samples.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
