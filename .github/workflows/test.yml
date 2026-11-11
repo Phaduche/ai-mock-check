@@ -1,0 +1,17 @@
+# main 에 올리거나 PR 을 열 때마다 분류 규칙 테스트를 돌린다. 실패하면 PR 화면에 빨간 X 가 뜬다.
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node tests/classify.test.js

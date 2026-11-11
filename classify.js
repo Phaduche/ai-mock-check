@@ -67,9 +67,9 @@
   const ESSAY = /서술하시오|설명하시오|쓰시오|논하시오/;
 
   function features(it) {
-    const stem = it.stem || "", opts = (it.options || []).join(" "), both = stem + " " + opts;
+    const stem = it.stem || "", options = it.options || [], both = stem + " " + options.join(" ");
     const hapdap = (HAPDAP_STEM.test(stem) && HAPDAP_MARK.test(stem)) ||
-      ((it.options || []).length >= 3 && it.options.every(o => HAPDAP_OPT.test(o)));
+      (options.length >= 3 && options.every(o => HAPDAP_OPT.test(o)));
     return {
       hapdap,
       data: DATA.test(stem),
@@ -96,14 +96,30 @@
     return { id: it.id, type, level, hapdap: f.hapdap, dataOrCalc: f.data || f.calc, reasons, missingAnswer };
   }
 
+  // ---------- 비교하는 항목 (한 곳에서만 정한다) ----------
+  // field 는 label() 결과와 기준 파일에서 같은 이름을 쓴다.
+  // 나눠 보는 항목(유형·난이도)은 칸마다 비율, 하나만 보는 항목(합답형·자료 계산)은 그 비율 하나를 담는다.
+  const DIMS = [
+    { field: "type", name: "문제 유형", keys: TYPES },
+    { field: "level", name: "예상 난이도", keys: LEVELS },
+    { field: "hapdap", name: "<보기> ㄱ·ㄴ·ㄷ 합답형", keys: ["합답형"], single: true },
+    { field: "dataOrCalc", name: "자료 해석·계산", keys: ["자료·계산"], single: true },
+  ];
+  const OTHER = "그 밖";
+  const SHORTAGE_MIN = 0.10;     // 기출보다 이만큼(10%p) 넘게 적은 칸만 "부족한 점"으로 띄운다
+  const WARN_BELOW = 70;         // 닮은 정도가 이보다 낮으면 "다 맞혀도 보장하지 않는다" 경고
+  const UNPRACTICED_MIN = 0.10;  // 기출에서 이 비율 이상인 유형을 연습하지 않았으면 알려 준다
+
+  // 하나만 보는 항목은 {합답형: p, 그 밖: 1 - p} 로 펴서 나눠 보는 항목과 같은 방식으로 다룬다.
+  const asDist = (d, v) => d.single ? { [d.keys[0]]: v, [OTHER]: 1 - v } : v;
+  const shownKeys = d => d.single ? [d.keys[0], OTHER] : d.keys;
+
   // ---------- 세트 요약 ----------
-  function share(labels, pick) { const n = Math.max(1, labels.length); return labels.filter(pick).length / n; }
+  function share(labels, pick) { return labels.filter(pick).length / Math.max(1, labels.length); }
   function summarize(items) {
-    const labels = items.map(label), out = { n: labels.length, labels, type: {}, level: {} };
-    TYPES.forEach(t => out.type[t] = share(labels, l => l.type === t));
-    LEVELS.forEach(v => out.level[v] = share(labels, l => l.level === v));
-    out.hapdap = share(labels, l => l.hapdap);
-    out.dataOrCalc = share(labels, l => l.dataOrCalc);
+    const labels = items.map(label), out = { n: labels.length, labels };
+    DIMS.forEach(d => { out[d.field] = d.single ? share(labels, l => l[d.field])
+      : Object.fromEntries(d.keys.map(k => [k, share(labels, l => l[d.field] === k)])); });
     out.nMC = items.filter(it => it.type === "객관식").length;
     out.nEssay = labels.length - out.nMC;
     out.missingAnswers = labels.filter(l => l.missingAnswer).map(l => l.id);
@@ -114,54 +130,69 @@
   // 기준(baseline)에 있는 항목만 비교한다. 거리 = 두 분포의 총변동거리(0~1), 닮은 정도 = (1 - 평균 거리) × 100.
   function tv(p, q, keys) { return keys.reduce((s, k) => s + Math.abs((p[k] || 0) - (q[k] || 0)), 0) / 2; }
   function compare(sum, base) {
-    const rows = [], gaps = [];
-    const addDist = (name, keys, mine, theirs) => {
-      rows.push({ name, keys, mine, theirs, distance: tv(mine, theirs, keys) });
-      keys.forEach(k => gaps.push({ what: `'${k}' 문제`, d: (theirs[k] || 0) - (mine[k] || 0) })); };
-    const addBin = (name, key, mine, theirs) => {
-      rows.push({ name, keys: [key, "그 밖"], mine: { [key]: mine, "그 밖": 1 - mine }, theirs: { [key]: theirs, "그 밖": 1 - theirs }, distance: Math.abs(mine - theirs) });
-      gaps.push({ what: `${key} 문제`, d: theirs - mine }); };
-    if (base.type) addDist("문제 유형", TYPES, sum.type, base.type);
-    if (base.level) addDist("예상 난이도", LEVELS, sum.level, base.level);
-    if (base.hapdap != null) addBin("<보기> ㄱ·ㄴ·ㄷ 합답형", "합답형", sum.hapdap, base.hapdap);
-    if (base.dataOrCalc != null) addBin("자료 해석·계산", "자료·계산", sum.dataOrCalc, base.dataOrCalc);
+    const rows = DIMS.filter(d => base[d.field] != null).map(d => {
+      const keys = shownKeys(d), mine = asDist(d, sum[d.field]), theirs = asDist(d, base[d.field]);
+      return { name: d.name, keys, mine, theirs, distance: tv(mine, theirs, keys),
+        gaps: d.keys.map(k => ({ k, d: (theirs[k] || 0) - (mine[k] || 0) })) };
+    });
     const similarity = rows.length ? Math.round((1 - rows.reduce((s, r) => s + r.distance, 0) / rows.length) * 100) : null;
-    const shortages = gaps.filter(g => g.d >= 0.10).sort((a, b) => b.d - a.d).slice(0, 3)
-      .map(g => `기출보다 ${g.what}가 ${Math.round(g.d * 100)}%p 적어요.`);
-    return { rows, similarity, shortages, warn: similarity != null && similarity < 70 };
+    const shortages = rows.flatMap(r => r.gaps).filter(g => g.d >= SHORTAGE_MIN).sort((a, b) => b.d - a.d).slice(0, 3)
+      .map(g => `기출보다 '${g.k}' 문제가 ${Math.round(g.d * 100)}%p 적어요.`);
+    return { rows, similarity, shortages, warn: similarity != null && similarity < WARN_BELOW };
   }
 
   // ---------- 다시 요청 문장 ----------
-  function retryPrompt(sum, base, opts) {
-    opts = opts || {}; const nMC = opts.nMC || 16, nEssay = opts.nEssay || 4, total = nMC + nEssay;
-    const unit = (opts.unit || "").trim();
-    const lines = [`방금 만든 예상문제는 실제 학교 시험과 형식이 달라. ${unit ? `${unit} 단원 범위로 ` : "같은 범위로 "}시험 예상문제를 다시 만들어 줘.`,
+  // 기준에 있는 항목만 문항 수로 바꿔 넣는다 (객관식 16 + 서술형 4 기준).
+  function retryPrompt(base, unit) {
+    const nMC = 16, nEssay = 4, total = nMC + nEssay, count = (p, n) => Math.round((p || 0) * n);
+    const scope = (unit || "").trim() ? `${unit.trim()} 단원 범위로 ` : "같은 범위로 ";
+    const lines = [`방금 만든 예상문제는 실제 학교 시험과 형식이 달라. ${scope}시험 예상문제를 다시 만들어 줘.`,
       `- 전체 ${total}문항 (객관식 ${nMC}문항은 보기 5개, 서술형 ${nEssay}문항), 문항마다 정답과 해설`];
-    if (base.hapdap != null) lines.push(`- 객관식 중 ${Math.max(1, Math.round(base.hapdap * nMC))}문항 이상은 <보기>의 ㄱ, ㄴ, ㄷ 중 옳은 것을 모두 고르는 형식`);
-    if (base.dataOrCalc != null) lines.push(`- ${Math.max(1, Math.round(base.dataOrCalc * total))}문항 이상은 표, 그래프, 실험 결과를 해석하거나 계산해야 푸는 문제`);
-    if (base.type) lines.push(`- 교과서 문장을 그대로 묻는 단순 암기 문제는 ${Math.round((base.type["개념 체크"] || 0) * total)}문항 이하`);
-    else lines.push("- 교과서 문장을 그대로 묻는 단순 암기 문제는 최대한 줄이기");
-    if (base.level) lines.push(`- 난이도는 상 ${Math.round(base.level["상"] * total)}문항, 중 ${Math.round(base.level["중"] * total)}문항, 하 ${Math.round(base.level["하"] * total)}문항 정도`);
+    if (base.hapdap != null) lines.push(`- 객관식 중 ${Math.max(1, count(base.hapdap, nMC))}문항 이상은 <보기>의 ㄱ, ㄴ, ㄷ 중 옳은 것을 모두 고르는 형식`);
+    if (base.dataOrCalc != null) lines.push(`- ${Math.max(1, count(base.dataOrCalc, total))}문항 이상은 표, 그래프, 실험 결과를 해석하거나 계산해야 푸는 문제`);
+    lines.push(base.type ? `- 교과서 문장을 그대로 묻는 단순 암기 문제는 ${count(base.type["개념 체크"], total)}문항 이하`
+      : "- 교과서 문장을 그대로 묻는 단순 암기 문제는 최대한 줄이기");
+    if (base.level) lines.push(`- 난이도는 ${["상", "중", "하"].map(v => `${v} ${count(base.level[v], total)}문항`).join(", ")} 정도`);
     lines.push("- 개념을 확인하는 문제만이 아니라, 개념을 새로운 상황에 적용하는 응용 문제도 섞기");
     return lines.join("\n");
   }
 
+  // ---------- 풀어 본 결과 ----------
+  // results: { 문항 번호: true(맞음) | false(틀림) | null(채점 안 함) }
+  function score(labels, results, base) {
+    const byType = Object.fromEntries(TYPES.map(t => [t, { right: 0, total: 0 }]));
+    labels.forEach(l => { const r = results[l.id]; if (r == null) return; byType[l.type].total++; if (r) byType[l.type].right++; });
+    const right = TYPES.reduce((s, t) => s + byType[t].right, 0), total = TYPES.reduce((s, t) => s + byType[t].total, 0);
+    const unpracticed = base && base.type ? TYPES.filter(t => !byType[t].total && (base.type[t] || 0) >= UNPRACTICED_MIN) : [];
+    return { byType, right, total, percent: total ? Math.round(100 * right / total) : null, unpracticed };
+  }
+
+  // 기준에 학교 문항분석표 정답률이 있으면 그 유형의 기출 평균 정답률(%), 없으면 null
+  const baseRate = (base, type) => (base && base.correctRate && base.correctRate.type && base.correctRate.type[type] != null) ? base.correctRate.type[type] : null;
+
   // ---------- 기출로 기준 만들기 ----------
-  // 문항 원문은 담지 않고 비율과 평균 정답률만 담는다.
-  function makeBaseline(items, name, rates) {
-    const s = summarize(items);
-    const base = { id: "b" + Date.now().toString(36), name: name || "기출 기준", n: s.n, made_with: VERSION,
-      type: s.type, level: s.level, hapdap: s.hapdap, dataOrCalc: s.dataOrCalc };
-    if (rates && Object.keys(rates).length) {
-      const avg = pick => { const v = s.labels.filter(pick).map(l => rates[l.id]).filter(x => typeof x === "number" && !isNaN(x));
-        return v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) : null; };
-      base.correctRate = { type: {}, level: {} };
-      TYPES.forEach(t => base.correctRate.type[t] = avg(l => l.type === t));
-      LEVELS.forEach(v => base.correctRate.level[v] = avg(l => l.level === v));
+  // 문항 원문은 담지 않고 비율과 평균 정답률만 담는다. rates: { 문항 번호: 정답률(%) }, 빈 값은 뺀다.
+  function makeBaseline(sum, name, rates) {
+    const base = { id: "b" + Date.now().toString(36), name: (name || "").trim() || "기출 기준", n: sum.n, made_with: VERSION };
+    DIMS.forEach(d => base[d.field] = sum[d.field]);
+    const clean = {};
+    Object.entries(rates || {}).forEach(([id, v]) => { if (String(v).trim() !== "" && !isNaN(+v)) clean[id] = Math.max(0, Math.min(100, +v)); });
+    if (Object.keys(clean).length) {
+      base.correctRate = { type: {} };
+      TYPES.forEach(t => { const v = sum.labels.filter(l => l.type === t && clean[l.id] != null).map(l => clean[l.id]);
+        base.correctRate.type[t] = v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) : null; });
     }
     return base;
   }
 
-  const MC = { VERSION, TYPES, LEVELS, parseAI, features, label, summarize, compare, retryPrompt, makeBaseline };
+  // 파일로 받은 기준을 점검: 비교할 항목이 하나라도 있어야 하고, 다른 규칙 버전으로 만든 것이면 알려 준다.
+  function checkBaseline(x) {
+    if (!x || typeof x !== "object" || !DIMS.some(d => x[d.field] != null)) throw new Error("비교할 항목이 없는 기준 파일입니다.");
+    const base = Object.assign({}, x, { id: x.id || "file-" + Math.random().toString(36).slice(2, 8) });
+    const warning = x.made_with && x.made_with !== VERSION ? `다른 분류 규칙(${x.made_with})으로 만든 기준이라 비교가 정확하지 않을 수 있어요. 기출로 기준을 다시 만들어 주세요.` : "";
+    return { base, warning };
+  }
+
+  const MC = { VERSION, CIRC, TYPES, LEVELS, DIMS, OTHER, parseAI, label, summarize, compare, retryPrompt, score, baseRate, makeBaseline, checkBaseline };
   if (typeof module !== "undefined" && module.exports) module.exports = MC; else root.MC = MC;
 })(typeof window !== "undefined" ? window : globalThis);

@@ -5,7 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>기출로 기준 만들기</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap"></noscript>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -28,41 +30,13 @@
 
   <h2>3. 기준 파일 내려받기</h2>
   <button id="dl">기준 파일(.json) 내려받기</button>
-  <p class="small">내려받은 파일은 점검표의 "기준 파일" 칸에서 열어 이 브라우저에서만 쓸 수 있습니다. 모두가 쓰게 하려면 파일 내용을 저장소의 baselines.json 목록에 추가해 PR로 올립니다.</p>
+  <p class="small">내려받은 파일은 점검표의 "기준 파일" 칸에서 열어 이 브라우저에서만 쓸 수 있습니다. 모두가 쓰게 하려면 파일 내용을 저장소의 baselines.js 목록에 추가해 PR로 올립니다 (README의 "고치는 방법" 참고).</p>
   <pre id="json" class="small" style="white-space:pre-wrap;border:1px solid #ccc;padding:8px"></pre>
 </div>
 
 <script src="classify.js"></script>
+<script src="ui.js"></script>
 <script src="samples.js"></script>
-<script>
-(function () {
-  const $ = id => document.getElementById(id);
-  const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-  const pct = x => `${Math.round((x || 0) * 100)}%`;
-  let items = [];
-  function build() {
-    const rates = {};
-    items.forEach(it => { const v = $("r" + it.id).value.trim(); if (v !== "" && !isNaN(+v)) rates[it.id] = Math.max(0, Math.min(100, +v)); });
-    const b = MC.makeBaseline(items, $("name").value.trim() || "기출 기준", rates);
-    $("json").textContent = JSON.stringify(b, null, 2);
-    $("summary").textContent = `${b.n}문항 · 유형 ` + MC.TYPES.map(t => `${t} ${pct(b.type[t])}`).join(", ") +
-      ` · 난이도 ` + MC.LEVELS.map(v => `${v} ${pct(b.level[v])}`).join(", ") + ` · 합답형 ${pct(b.hapdap)} · 자료·계산 ${pct(b.dataOrCalc)}`;
-    return b;
-  }
-  $("go").onclick = () => {
-    $("err").textContent = "";
-    items = MC.parseAI($("raw").value);
-    if (!items.length) { $("err").textContent = "문항을 찾지 못했습니다."; return; }
-    $("rows").innerHTML = items.map(it => { const l = MC.label(it); const stem = it.stem.length > 90 ? it.stem.slice(0, 90) + "…" : it.stem;
-      return `<tr><td>${it.id}</td><td class="stem">${esc(stem)}</td><td>${esc(l.type)}</td><td>${esc(l.level)}</td><td>${esc(l.reasons.join(", ") || "-")}</td><td><input type="text" id="r${it.id}" style="width:60px"></td></tr>`; }).join("");
-    $("rows").querySelectorAll("input").forEach(x => x.oninput = build);
-    $("out").classList.remove("hidden"); build();
-  };
-  $("sample").onclick = () => { $("raw").value = window.SAMPLES.exam; if (!$("name").value) $("name").value = "[예시] 기출 형식 5문항"; };
-  $("dl").onclick = () => { const b = build(); const a = document.createElement("a");
-    a.href = URL.createObjectURL(new Blob([JSON.stringify(b, null, 2)], { type: "application/json" })); a.download = "baseline.json"; document.body.appendChild(a); a.click();
-    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500); };
-})();
-</script>
+<script src="baseline.js"></script>
 </body>
 </html>
