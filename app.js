@@ -1,7 +1,7 @@
 /* AI 예상문제 점검표 화면. 규칙은 classify.js(MC), 공통 도구는 ui.js(UI), 기준 목록은 baselines.js. */
 (function () {
   "use strict";
-  const { $, esc, pct, orDash, fmtDist, labelCells, parseOrError } = UI;
+  const { $, esc, pct, orDash, fmtDist, labelCells, parseOrError, stemHtml } = UI;
   const HIST_KEY = "ai-mock-check:history";
   let BASES = window.BASELINES.slice(), items = [], sum = null, cmp = null;
   const warnings = {};   // 파일로 연 기준마다 경고 (다른 규칙 버전 등)
@@ -80,13 +80,13 @@
   function quiz() {
     $("solve").disabled = true;
     $("quiz").innerHTML = items.map(it => {
-      const head = `<div class="item"><div class="q"><b>${it.id}.</b> ${esc(it.stem)}${it.type === "서술형" ? ' <span class="small">(서술형)</span>' : ""}</div>`;
+      const head = `<div class="item"><div class="q"><b>${it.id}.</b> ${stemHtml(it.stem)}${it.type === "서술형" ? ' <span class="small">(서술형)</span>' : ""}</div>`;
       const tail = `<p class="small" id="m${it.id}"></p></div>`;
       const body = it.type === "객관식"
         ? it.options.map((o, k) => `<label><input type="radio" name="q${it.id}" value="${k + 1}"> ${MC.CIRC[k]} ${esc(o)}</label>`).join("") +
           (it.answer ? "" : '<p class="small">정답이 없어 채점에서 뺍니다.</p>')
         : `<textarea style="min-height:70px"></textarea>
-           <details><summary>모범 답안 보고 스스로 채점</summary><p>${esc(it.answer || "(모범 답안 없음)")}</p>
+           <details><summary>모범 답안 보고 스스로 채점</summary><div class="q">${stemHtml(it.answer || "(모범 답안 없음)")}</div>
            <label><input type="radio" name="s${it.id}" value="1"> 맞음</label><label><input type="radio" name="s${it.id}" value="0"> 틀림</label></details>`;
       return head + body + tail;
     }).join("") + `<button id="grade">채점</button>`;
@@ -133,7 +133,12 @@
   };
 
   $("check").onclick = analyze;
-  $("sample").onclick = () => { $("raw").value = window.SAMPLES.ai; if (!$("unit").value) $("unit").value = "통합과학2 화학 변화"; };
+  // ---------- 돌려 볼 예시 (samples.js 의 SAMPLE_LIST) ----------
+  const sample = () => window.SAMPLE_LIST.find(x => x.key === $("sampleSel").value) || window.SAMPLE_LIST[0];
+  $("sampleSel").innerHTML = window.SAMPLE_LIST.map(x => `<option value="${esc(x.key)}">${esc(x.name)}</option>`).join("");
+  $("sampleSel").onchange = () => { $("sampleNote").textContent = sample().note || ""; };
+  $("sampleSel").onchange();
+  $("sample").onclick = () => { $("raw").value = window.SAMPLES[sample().key]; if (!$("unit").value) $("unit").value = "통합과학2 화학 변화"; };
   $("base").onchange = onBaseChange;
   $("unit").oninput = () => { if (sum) $("prompt").value = MC.retryPrompt(base(), $("unit").value); };
   $("solve").onclick = quiz;

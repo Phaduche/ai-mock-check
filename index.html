@@ -23,7 +23,9 @@
 <p class="small" id="basenote"></p>
 <label for="raw">AI가 준 답 전체</label>
 <textarea id="raw" placeholder="AI 앱에서 받은 예상문제를 정답·해설까지 통째로 복사해서 붙여 넣으세요."></textarea>
-<button id="check">점검하기</button><button id="sample">예시 넣기</button>
+<button id="check">점검하기</button>
+<p class="small">돌려 볼 문제가 없으면: <select id="sampleSel" style="width:auto;max-width:100%"></select> <button id="sample" style="margin-top:0">넣기</button></p>
+<p class="small" id="sampleNote"></p>
 <p class="err" id="err"></p>
 
 <div id="result" class="hidden">
