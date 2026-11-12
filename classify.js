@@ -1,58 +1,84 @@
 /* AI 예상문제 점검표: 문항 나누기, 유형·예상 난이도 붙이기, 기출과 비교, 다시 요청 문장 만들기.
-   - 문항 나누기(parseAI)는 mockgap-study / session-frame 의 규칙을 그대로 옮겼다.
-     다른 점 하나: 발문이 여러 줄이면 줄바꿈을 남긴다 (<보기>의 ㄱ. ㄴ. ㄷ. 줄이 화면에서 보이도록).
+   - 문항 나누기(parseAI)는 mockgap-study / session-frame 의 규칙에서 출발했다. 달라진 점은 파서 위의 주석에 있다.
    - 유형과 난이도는 학습하지 않는 규칙이다. AI 문제와 기출 문제에 똑같은 규칙을 써야 비교가 공정하다.
    - 브라우저에서는 window.MC, node 에서는 require("./classify.js") 로 쓴다. 문항은 어디로도 보내지 않는다. */
 (function (root) {
   "use strict";
-  const VERSION = "classify-v1";
+  const VERSION = "classify-v2";   // 문항 나누기나 분류 규칙이 바뀌면 올린다
   const CIRC = "①②③④⑤";
   const TYPES = ["개념 체크", "개념 활용", "응용", "서술형"];
   const LEVELS = ["하", "중", "상"];
 
-  // ---------- 챗 앱 출력 파서 (mockgap-study / session-frame 과 같은 규칙) ----------
+  // ---------- 챗 앱 출력 파서 ----------
+  // mockgap-study / session-frame 의 규칙에서 출발했고, 실제 AI 답(samples.js 의 first, retry)을 돌려 보고 아래를 고쳤다.
+  //  - "**해설** …"처럼 쌍점 없이 굵은 글씨로만 표시한 해설도 해설로 읽는다 (전에는 마지막 선지에 붙었다)
+  //  - 서술형의 소문항 (1), (2)를 선지로 세지 않는다: "서술형" 구역, "모범 답안" 표시, 선지가 2~3개뿐이고 정답이 번호가 아닌 경우
+  //  - 정답·해설 뒤에 이어지는 줄은 그 정답·해설에 붙인다
+  //  - 인용 표시(>)와 구분선(---)은 뺀다. 구분선 뒤의 표시 없는 줄(챗 앱의 맺음말 등)은 버린다
   const NUM = /^\s*(?:\*\*)?(?:#+\s*)?(?:문제|문항|Q|q)?\s*(\d{1,2})\s*(?:[\.\)\]번:：]|\*\*)\s*(.*)$/;
   const OPT = /^\s*(?:\*\*)?(?:[\(\[]?([1-5])[\)\]\.]|([①②③④⑤]))\s*(?:\*\*)?\s*(.+)$/;
   const ANS = /^\s*(?:\*\*)?(?:정답|답)\s*(?:\*\*)?\s*[:：]?\s*(?:\*\*)?\s*(.*)$/;
   const ANS_NUM = /[\(\[]?([1-5])[\)\]]?\s*번?|([①②③④⑤])/;
-  const EXPL = /^\s*(?:\*\*)?(?:해설|풀이|설명|근거)\s*(?:\*\*)?\s*[:：]\s*(?:\*\*)?\s*(.*)$/;
+  const EXPL = /^\s*(?:\*\*)?\s*(?:해설|풀이|설명|근거)\s*(?:\*\*\s*[:：]?|[:：])\s*(?:\*\*)?\s*(.*)$/;
   const MODEL = /^\s*(?:\*\*)?(?:모범\s*답안|예시\s*답안|모범답)\s*(?:\*\*)?\s*[:：]?\s*(?:\*\*)?\s*(.*)$/;
+  const MODEL_HEAD = /^[\(\[]?\s*(?:모범\s*답안|예시\s*답안|모범답)\s*[\)\]]?\s*[:：]?\s*(.*)$/;   // "정답(모범 답안)"의 뒷부분
   const SECTION = /^\s*(?:#+\s*|\*\*|\[|【)?\s*(객관식|서술형|선택형|주관식)/i;
   const META = /^\s*(?:난이도|유형|출제\s*의도|관련\s*단원|사고\s*수준)\s*[:：]/;
+  const RULE = /^\s*(?:[-*_]\s*){3,}$/;
   const INLINE = /(?:(?<=\s)|^)(?:[\(\[]([1-5])[\)\]]|([①②③④⑤]))\s*/g;
   const clean = s => String(s || "").replace(/\*\*|__|`/g, "").trim();
-  function explode(text) { const out = [];
-    for (const raw of String(text || "").replace(/\r/g, "").split("\n")) { const line = raw.replace(/\s+$/, "");
-      if (/(정답|답)\s*[:：]/.test(line) && line.includes("해설")) { const i = line.search(/해설\s*[:：]/); if (i > 0) { out.push(line.slice(0, i).replace(/\s+$/, "")); out.push(line.slice(i)); continue; } }
-      const marks = [...line.matchAll(INLINE)];
-      if (marks.length >= 3) { const head = line.slice(0, marks[0].index).replace(/\s+$/, ""); if (head) out.push(head);
-        marks.forEach((m, i) => { const end = i + 1 < marks.length ? marks[i + 1].index : line.length; const label = m[1] || m[2];
-          out.push(m[1] ? `${label}) ${line.slice(m.index + m[0].length, end).trim()}` : `${label} ${line.slice(m.index + m[0].length, end).trim()}`); });
-        continue; }
-      out.push(line); }
+  const join = (a, b, sep) => (a && b ? a + sep + b : a || b);
+  // 한 줄에 "정답: … 해설: …"이 같이 있으면 둘로, 선지 ①~⑤가 한 줄에 있으면 선지마다 한 줄로 나눈다.
+  // 선지 나누기는 발문·선지를 읽는 중이거나 새 문항이 시작되는 줄에서만 한다.
+  // (해설 속의 "(1)은 …, (2)는 …, (3)은 …"을 나누면 새 문항으로 잘못 읽힌다.)
+  function splitLine(line, withOptions) {
+    if (/(정답|답)\s*[:：]/.test(line) && line.includes("해설")) { const i = line.search(/해설\s*[:：]/); if (i > 0) return [line.slice(0, i).replace(/\s+$/, ""), line.slice(i)]; }
+    const marks = withOptions ? [...line.matchAll(INLINE)] : [];
+    if (marks.length < 3) return [line];
+    const head = line.slice(0, marks[0].index).replace(/\s+$/, ""), out = head ? [head] : [];
+    marks.forEach((m, i) => { const end = i + 1 < marks.length ? marks[i + 1].index : line.length, body = line.slice(m.index + m[0].length, end).trim();
+      out.push(m[1] ? `${m[1]}) ${body}` : `${m[2]} ${body}`); });
     return out; }
-  function parseAI(text) { const items = []; let cur = null;
-    for (const line of explode(text)) { if (!line.trim()) continue;
-      if (SECTION.test(line) && clean(line).length < 25) continue;
-      if (META.test(line)) continue;
+  // cur.part: 지금 읽고 있는 부분 (stem → options → answer → expl, closed 는 구분선 뒤)
+  function parseAI(text) { const items = []; let cur = null, section = "";
+    const inQuestion = () => !!cur && (cur.part === "stem" || cur.part === "options");
+    const feed = line => { if (!line.trim()) return;
+      if (RULE.test(line)) { if (cur) cur.part = "closed"; return; }
+      const ms = SECTION.exec(line);
+      if (ms && clean(line).length < 25) { section = /서술형|주관식/.test(ms[1]) ? "서술형" : "객관식"; if (cur) cur.part = "closed"; return; }
+      if (META.test(line)) return;
       const mn = NUM.exec(line), mo = OPT.exec(line);
       if (mn) { const n = parseInt(mn[1], 10);
-        const isOpt = cur && mo && !cur.answer && n <= 5 && n === cur.options.length + 1 && (cur.options.length > 0 || n === 1);
-        if (!isOpt && (!cur || n > cur.id || n === 1)) { cur = { id: n, type: "객관식", stem: clean(mn[2]), options: [], answer: "", explanation: "" }; items.push(cur); continue; } }
-      if (!cur) continue;
+        const isOpt = inQuestion() && mo && n <= 5 && n === cur.options.length + 1 && (cur.options.length > 0 || n === 1);
+        if (!isOpt && (!cur || n > cur.id || n === 1)) {
+          cur = { id: n, essay: section === "서술형", stem: clean(mn[2]), options: [], answer: "", explanation: "", part: "stem" }; items.push(cur); return; } }
+      if (!cur) return;
       const ma = ANS.exec(line);
-      if (ma) { const a = clean(ma[1]); const m = ANS_NUM.exec(a); if (cur.options.length && m) cur.answer = m[1] || String(CIRC.indexOf(m[2]) + 1); else cur.answer = a; continue; }
-      const mm = MODEL.exec(line); if (mm) { cur.answer = clean(mm[1]); cur.type = "서술형"; continue; }
-      const me = EXPL.exec(line); if (me) { cur.explanation = (cur.explanation + " " + clean(me[1])).trim(); continue; }
-      if (mo && !cur.answer && cur.options.length < 5) { cur.options.push(clean(mo[3])); continue; }
-      if (cur.explanation) cur.explanation += " " + clean(line);
-      else if (cur.answer && cur.type === "서술형") cur.answer += " " + clean(line);
-      else if (cur.options.length) cur.options[cur.options.length - 1] += " " + clean(line);
-      else cur.stem = (cur.stem + "\n" + clean(line)).trim(); }
-    items.forEach((it, i) => { it.id = i + 1;
-      if (it.options.length >= 2) { it.type = "객관식"; if (it.answer && !"12345".includes(it.answer)) { const m = ANS_NUM.exec(it.answer); it.answer = m ? (m[1] || String(CIRC.indexOf(m[2]) + 1)) : ""; } }
-      else { it.type = "서술형"; it.options = []; } });
-    return items.filter(it => it.stem); }
+      if (ma) { const a = clean(ma[1]), mh = MODEL_HEAD.exec(a);
+        if (mh) { cur.essay = true; cur.answer = clean(mh[1]); } else cur.answer = a;
+        cur.part = "answer"; return; }
+      const mm = MODEL.exec(line); if (mm) { cur.essay = true; cur.answer = clean(mm[1]); cur.part = "answer"; return; }
+      const me = EXPL.exec(line); if (me) { cur.explanation = join(cur.explanation, clean(me[1]), " "); cur.part = "expl"; return; }
+      if (mo && inQuestion() && !cur.essay && cur.options.length < 5) { cur.options.push(clean(mo[3])); if (mo[2]) cur.circled = true; cur.part = "options"; return; }
+      const t = clean(line);
+      if (cur.part === "expl") cur.explanation = join(cur.explanation, t, " ");
+      else if (cur.part === "answer") cur.answer = join(cur.answer, t, "\n");
+      else if (cur.part === "options") cur.options[cur.options.length - 1] += " " + t;
+      else if (cur.part === "stem") cur.stem = join(cur.stem, t, "\n"); };
+    for (const raw of String(text || "").replace(/\r/g, "").split("\n")) {
+      const line = raw.replace(/\s+$/, "").replace(/^\s*>\s?/, "");   // 줄 끝 공백과 인용 표시(>)를 뺀다
+      splitLine(line, (inQuestion() && !cur.essay) || NUM.test(line)).forEach(feed); }
+    return items.filter(it => it.stem).map((it, i) => {
+      // 객관식의 정답은 첫 줄에서 번호만 남기고, 같은 줄이나 다음 줄에 이어 쓴 글은 해설로 옮긴다
+      const [first, ...rest] = it.answer.split("\n"), m = ANS_NUM.exec(first);
+      const bare = !!m && first.replace(ANS_NUM, "").replace(/[\s\.,]/g, "") === "";
+      const essay = it.essay || it.options.length < 2 || (it.options.length < 4 && !it.circled && !bare);
+      const out = { id: i + 1, type: essay ? "서술형" : "객관식", stem: it.stem, options: essay ? [] : it.options, answer: it.answer, explanation: it.explanation };
+      if (essay) { if (it.options.length) out.stem += "\n" + it.options.map((o, k) => `(${k + 1}) ${o}`).join("\n"); }
+      else { out.answer = m ? (m[1] || String(CIRC.indexOf(m[2]) + 1)) : "";
+        const extra = (bare ? rest : [first.replace(ANS_NUM, "").replace(/^[\s\.,:：)\-–—]+/, "").trim(), ...rest]).filter(Boolean).join(" ");
+        if (m && extra) out.explanation = join(extra, it.explanation, " "); }
+      return out; }); }
 
   // ---------- 문항 특징 ----------
   // <보기> ㄱ·ㄴ·ㄷ 합답형: 발문에 <보기>와 ㄱ. 같은 진술이 있거나, 선지가 모두 ㄱ, ㄴ 조합이다.
@@ -60,8 +86,8 @@
   const HAPDAP_MARK = /(^|\s)ㄱ\s*[\.\)]/;
   const HAPDAP_OPT = /^\s*[ㄱ-ㅁ](\s*[,，·]\s*[ㄱ-ㅁ])*\s*$/;
   // 자료: 표·그래프·그림·실험 결과를 읽어야 하는 문항 ("다음은 ~에 대한 설명이다" 같은 말은 자료로 보지 않는다)
-  const DATA = /(^|[^가-힣])표\s*(는|를|와|에|의|이|에서|\d|\(|$)|그래프|그림|자료|실험\s*결과|측정\s*결과|\(가\)\s*[와과,]|\(나\)|나타낸\s*것|결과를\s*나타|실험\s*과정/;
-  const CALC_UNIT = /\d+(\.\d+)?\s*(g|kg|mg|mL|L|J|kJ|W|kW|kWh|%|℃|°C|mol|M|N|m|cm|km|s|초|분|년|배|ppm|V|A)(?![A-Za-z])/;
+  const DATA = /(^|[^가-힣])표\s*(는|를|와|에|의|이|에서|\d|\(|$)|그래프|그림|자료|실험\s*결과|측정\s*결과|\(가\)\s*[와과,]|\(나\)|나타낸\s*것|결과를\s*나타|실험\s*과정|\[\s*(실험\s*)?(과정|결과)\s*\]|(^|\n)\s*\|.+\|/;   // 끝의 둘: [과정]·[결과] 표시, 챗 앱이 그린 표(| … |)
+  const CALC_UNIT = /\d+(\.\d+)?\s*(g|kg|mg|mL|L|J|kJ|W|kW|kWh|%|℃|°C|mol|M|N|m|cm|km|s|초|분|년|배|ppm|V|A)(?![A-Za-z])/g;
   const CALC_WORD = /구하시오|계산|얼마인가|몇\s*(g|mL|L|배|%|mol|개)|비율은|효율은|농도는|질량은|부피는|값은/;
   const DESIGN = /설계|실험\s*방법|탐구\s*과정|가설을|변인/;
   const ESSAY = /서술하시오|설명하시오|쓰시오|논하시오/;
@@ -73,7 +99,8 @@
     return {
       hapdap,
       data: DATA.test(stem),
-      calc: CALC_UNIT.test(both) || CALC_WORD.test(stem),
+      // 계산: 계산을 묻는 말이 있거나, 단위가 붙은 수가 둘 이상 ("25 ℃에서"처럼 조건 하나만 있는 것은 계산이 아니다)
+      calc: CALC_WORD.test(stem) || (both.match(CALC_UNIT) || []).length >= 2,
       design: DESIGN.test(stem),
       essay: it.type === "서술형" || ESSAY.test(stem),
     };

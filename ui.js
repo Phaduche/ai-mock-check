@@ -13,6 +13,22 @@
     // 문항별 표의 앞 다섯 칸 (번호, 문제, 유형, 예상 난이도, 근거). 마지막 칸은 화면마다 다르다.
     labelCells: (it, l) => `<td>${l.id}</td><td class="stem">${esc(UI.shortStem(it.stem))}${l.missingAnswer ? ' <span class="err">(정답 없음)</span>' : ""}</td>` +
       `<td>${esc(l.type)}</td><td>${esc(l.level)}</td><td>${esc(l.reasons.join(", ") || "-")}</td>`,
+    // 발문을 화면에 그린다: 챗 앱이 그린 표(| a | b |)는 표로, 나머지는 줄바꿈 그대로
+    stemHtml: stem => {
+      const out = []; let rows = [], head = false;
+      const flush = () => { if (!rows.length) return;
+        out.push(`<div class="tablewrap"><table>${rows.map((r, i) => `<tr>${r.map(c => head && i === 0 ? `<th>${esc(c)}</th>` : `<td>${esc(c)}</td>`).join("")}</tr>`).join("")}</table></div>`);
+        rows = []; head = false; };
+      String(stem).split("\n").forEach(line => {
+        const m = /^\s*\|(.+)\|\s*$/.exec(line);
+        if (!m) { flush(); out.push(esc(line) + "<br>"); return; }
+        const cells = m[1].split("|").map(c => c.trim());
+        if (cells.every(c => /^:?-{2,}:?$/.test(c))) head = rows.length === 1;   // |---|---| 줄: 바로 윗줄이 머리글
+        else rows.push(cells);
+      });
+      flush();
+      return out.join("").replace(/<br>$/, "");
+    },
     // 붙여 넣은 글을 문항으로 나눈다. 문제가 있으면 { error } 를 돌려준다.
     parseOrError: raw => {
       if (!String(raw || "").trim()) return { error: "붙여 넣은 내용이 없습니다." };

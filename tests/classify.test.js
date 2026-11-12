@@ -33,6 +33,45 @@ t("기출 예시: 합답형·자료·계산을 알아본다", () => {
   assert.ok(items[0].stem.includes("\nㄱ. A는 산화된다."));   // <보기> 줄을 남긴다
 });
 
+t("문항 나누기: 굵은 글씨 해설, 서술형 소문항, 정답 뒤 설명, 구분선 뒤 맺음말", () => {
+  const items = MC.parseAI([
+    "**1.** 산화에 대한 설명으로 옳은 것은?", "① 가 ② 나 ③ 다 ④ 라 ⑤ 마", "**정답** ②", "**해설** 산화는 산소를 얻는 반응이다.", "① 은 환원이다.", "---",
+    "2. 중화점에서 혼합 용액의 액성은?", "1) 산성", "2) 중성", "3) 염기성", "4) 알 수 없다", "정답: 2번. 수소 이온과 수산화 이온이 모두 반응한다.", "",
+    "3. 철이 녹스는 반응에 대해 답하시오.", "(1) 산화되는 물질을 쓰시오.", "(2) 그 까닭을 서술하시오.", "**정답(모범 답안)**", "(1) 철", "(2) 철이 산소를 얻기 때문이다.", "**해설** 산소를 얻으면 산화이다.", "---",
+    "더 필요한 문제가 있으면 말해 주세요."].join("\n"));
+  assert.deepStrictEqual(items.map(i => [i.type, i.options.length, i.answer.split("\n")[0]]),
+    [["객관식", 5, "2"], ["객관식", 4, "2"], ["서술형", 0, "(1) 철"]]);
+  assert.strictEqual(items[0].options[4], "마");                                   // 해설이 마지막 선지에 붙지 않는다
+  assert.strictEqual(items[0].explanation, "산화는 산소를 얻는 반응이다. ① 은 환원이다.");
+  assert.strictEqual(items[1].explanation, "수소 이온과 수산화 이온이 모두 반응한다.");   // 정답 줄에 이어 쓴 설명
+  assert.ok(items[2].stem.endsWith("(1) 산화되는 물질을 쓰시오.\n(2) 그 까닭을 서술하시오."));   // 소문항은 발문에 남는다
+  assert.strictEqual(items[2].answer, "(1) 철\n(2) 철이 산소를 얻기 때문이다.");
+  assert.strictEqual(items[2].explanation, "산소를 얻으면 산화이다.");                 // 맺음말은 버린다
+});
+
+t("실제 AI 답 두 세트: 객관식 16(선지 5개, 정답 있음) + 서술형 4(모범 답안 있음)로 읽힌다", () => {
+  const answers = { first: "2531423425135431", retry: "3425413425341512" };   // Claude Code 가 세트를 풀어 확인한 정답
+  for (const key of ["first", "retry"]) {
+    const items = MC.parseAI(window.SAMPLES[key]), mc = items.filter(i => i.type === "객관식"), essay = items.filter(i => i.type === "서술형");
+    assert.deepStrictEqual([items.length, mc.length, essay.length], [20, 16, 4], key);
+    assert.ok(mc.every(i => i.options.length === 5 && i.explanation && !i.options.some(o => o.includes("해설"))), key);
+    assert.strictEqual(mc.map(i => i.answer).join(""), answers[key], key);
+    assert.ok(essay.every(i => i.answer.length > 20 && i.explanation), key);
+    assert.ok(!items[19].explanation.includes("알려 주면"), key);              // 챗 앱의 맺음말은 문항에 붙지 않는다
+  }
+  assert.deepStrictEqual(window.SAMPLE_LIST.map(x => x.key).filter(k => !window.SAMPLES[k]), []);
+});
+
+t("실제 AI 답 두 세트: 처음 세트는 기출과 다르고, 다시 요청한 세트는 가까워진다", () => {
+  const sim = key => MC.compare(MC.summarize(MC.parseAI(window.SAMPLES[key])), PILOT);
+  const first = MC.summarize(MC.parseAI(window.SAMPLES.first)), retry = MC.summarize(MC.parseAI(window.SAMPLES.retry));
+  assert.deepStrictEqual([first.hapdap, first.dataOrCalc], [0.15, 0.2]);        // 3문항, 4문항
+  assert.deepStrictEqual([retry.hapdap, retry.dataOrCalc], [0.7, 1]);           // 14문항, 20문항
+  assert.deepStrictEqual([sim("first").similarity, sim("retry").similarity], [32, 90]);
+  assert.strictEqual(MC.label(MC.parseAI(window.SAMPLES.first)[8]).type, "개념 체크");   // "25 ℃에서" 하나로는 계산이 아니다
+  assert.ok(MC.label(MC.parseAI(window.SAMPLES.retry)[4]).reasons.includes("자료 해석"));  // 챗 앱이 그린 표도 자료
+});
+
 t("비교: 예비 조사 요약 기준이면 닮은 정도가 낮고 부족한 점 문장이 나온다", () => {
   const sum = MC.summarize(MC.parseAI(ai));
   const cmp = MC.compare(sum, PILOT);

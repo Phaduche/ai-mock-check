@@ -31,6 +31,7 @@ ul.gaps { margin: 6px 0; padding-left: 20px; }
 
 /* 풀어 보기 */
 .item { border-top: 1px solid #ddd; padding: 10px 0; }
-.item .q { white-space: pre-line; }
+.item .q table { width: auto; margin: 6px 0; }
+.tablewrap { overflow-x: auto; }
 .item label { margin: 2px 0 2px 8px; }
 .mark-ok { color: #060; } .mark-no { color: #b00; }
