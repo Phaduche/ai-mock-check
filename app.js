@@ -15,19 +15,34 @@
   }
   function onBaseChange() {
     $("basenote").textContent = [base()?.note, warnings[base()?.id]].filter(Boolean).join(" ");
+    showPrompts();
     if (sum) renderComparison(false);   // 기준만 바꾼 것이니 다시 나누지 않고, 풀던 문제도 그대로 둔다
+  }
+  // AI에게 보낼 문장 두 개 (처음 요청, 다시 요청). 단원 이름이나 기준이 바뀌면 다시 쓴다.
+  function showPrompts() {
+    $("firstPrompt").value = MC.firstPrompt(base(), $("unit").value);
+    $("prompt").value = MC.retryPrompt(base(), $("unit").value);
   }
 
   // ---------- 막대 ----------
+  const seg = (keys, dist) => keys.map((k, i) => { const w = Math.round((dist[k] || 0) * 100);
+    return w ? `<div class="seg s${i % 4}" style="width:${w}%" title="${esc(k)} ${w}%">${w >= 12 ? `${esc(k)} ${w}%` : ""}</div>` : ""; }).join("");
   function bars(rows) {
-    return rows.map(r => {
-      const seg = dist => r.keys.map((k, i) => { const w = Math.round((dist[k] || 0) * 100);
-        return w ? `<div class="seg s${i % 4}" style="width:${w}%" title="${esc(k)} ${w}%">${w >= 12 ? `${esc(k)} ${w}%` : ""}</div>` : ""; }).join("");
-      return `<div class="cmp"><div class="name">${esc(r.name)}</div>
-        <div class="row"><span class="who">이 세트</span><div class="bar">${seg(r.mine)}</div></div>
-        <div class="row"><span class="who">기출</span><div class="bar">${seg(r.theirs)}</div></div>
-        <div class="legend">이 세트: ${esc(fmtDist(r.keys, r.mine))}<br>기출: ${esc(fmtDist(r.keys, r.theirs))}</div></div>`;
-    }).join("");
+    return rows.map(r => `<div class="cmp"><div class="name">${esc(r.name)}</div>
+        <div class="row"><span class="who">이 세트</span><div class="bar">${seg(r.keys, r.mine)}</div></div>
+        <div class="row"><span class="who">기출</span><div class="bar">${seg(r.keys, r.theirs)}</div></div>
+        <div class="legend">이 세트: ${esc(fmtDist(r.keys, r.mine))}<br>기출: ${esc(fmtDist(r.keys, r.theirs))}</div></div>`).join("");
+  }
+
+  // ---------- 이 세트의 라벨 (기준과 관계없이 세트만 보고 정한다) ----------
+  function showSetLabels() {
+    const split = MC.DIMS.filter(d => !d.single);   // 문제 유형, 예상 난이도
+    $("selfBars").innerHTML = split.map(d => `<div class="cmp"><div class="name">${esc(d.name)}</div>
+        <div class="row"><div class="bar">${seg(d.keys, sum[d.field])}</div></div>
+        <div class="legend">${esc(d.keys.map(k => `${k} ${Math.round(sum[d.field][k] * sum.n)}문항`).join(" · "))}</div></div>`).join("");
+    const type = MC.topOf(MC.TYPES, sum.type), level = MC.topOf(MC.LEVELS, sum.level);
+    $("headline").textContent = `이 세트는 '${type.key}' 문제가 ${pct(type.share)}로 가장 많고, 난이도 '${level.key}' 문제가 ${pct(level.share)}로 가장 많아요.` +
+      (sum.type["개념 체크"] >= 0.5 ? " 개념 체크 문제는 다 맞혀도, 자료를 해석하거나 계산하는 문제까지 풀 수 있다는 뜻은 아니에요." : "");
   }
 
   // ---------- 점검: 문항 나누기(점검하기를 누를 때만) ----------
@@ -41,6 +56,7 @@
       (sum.missingAnswers.length ? ` · 정답이 안 보이는 문항: ${sum.missingAnswers.join(", ")}번` : "");
     $("quiz").innerHTML = ""; $("score").innerHTML = ""; $("solve").disabled = false;
     $("result").classList.remove("hidden");
+    showSetLabels();
     renderComparison(true);
   }
 
@@ -53,12 +69,11 @@
     $("gaps").innerHTML = cmp.shortages.map(s => `<li>${esc(s)}</li>`).join("");
     $("warn").textContent = cmp.warn ? "이 세트를 다 맞혀도 시험 점수를 보장하지 않아요. 아래 4번 문장으로 다시 요청해 보세요." : "";
 
+    // 예상 정답률: 기준에 실제 정답률(문항분석표)이 있을 때만 숫자가 나온다
     const hasRate = MC.TYPES.some(t => MC.baseRate(b, t) != null);
-    $("rateHead").classList.toggle("hidden", !hasRate);
-    $("rows").innerHTML = sum.labels.map((l, i) =>
-      `<tr>${labelCells(items[i], l)}${hasRate ? `<td>${orDash(MC.baseRate(b, l.type))}</td>` : ""}</tr>`).join("");
+    $("rateNote").textContent = hasRate ? "" : "지금 고른 기준에는 실제 정답률 자료가 없어서 '-'로 나옵니다. 문항분석표 정답률을 넣어 기준을 만들면 숫자가 나옵니다.";
+    $("rows").innerHTML = sum.labels.map((l, i) => `<tr>${labelCells(items[i], l)}<td>${orDash(MC.baseRate(b, l.type))}</td></tr>`).join("");
 
-    $("prompt").value = MC.retryPrompt(b, $("unit").value);
     if (record) addHistory();
     showHistory();
   }
@@ -138,12 +153,14 @@
   $("sampleSel").innerHTML = window.SAMPLE_LIST.map(x => `<option value="${esc(x.key)}">${esc(x.name)}</option>`).join("");
   $("sampleSel").onchange = () => { $("sampleNote").textContent = sample().note || ""; };
   $("sampleSel").onchange();
-  $("sample").onclick = () => { $("raw").value = window.SAMPLES[sample().key]; if (!$("unit").value) $("unit").value = "통합과학2 화학 변화"; };
+  $("sample").onclick = () => { $("raw").value = window.SAMPLES[sample().key]; if (!$("unit").value) { $("unit").value = "통합과학2 화학 변화"; showPrompts(); } };
   $("base").onchange = onBaseChange;
-  $("unit").oninput = () => { if (sum) $("prompt").value = MC.retryPrompt(base(), $("unit").value); };
+  $("unit").oninput = showPrompts;
   $("solve").onclick = quiz;
   $("clearHist").onclick = () => { history = []; saveHistory(); showHistory(); };
-  $("copy").onclick = () => { navigator.clipboard.writeText($("prompt").value).then(() => $("copied").textContent = "복사됨", () => { $("prompt").select(); $("copied").textContent = "직접 복사해 주세요"; }); };
+  // "문장 복사" 버튼: data-from 에 적힌 칸의 글을 복사하고, 바로 옆 칸에 결과를 적는다
+  document.querySelectorAll("button.copy").forEach(btn => { btn.onclick = () => { const box = $(btn.dataset.from), note = btn.nextElementSibling;
+    navigator.clipboard.writeText(box.value).then(() => note.textContent = "복사됨", () => { box.select(); note.textContent = "직접 복사해 주세요"; }); }; });
 
   fillBases();
 })();

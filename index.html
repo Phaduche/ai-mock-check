@@ -12,15 +12,23 @@
 </head>
 <body>
 <h1>AI 예상문제 점검표</h1>
-<p class="small">AI가 만든 예상문제를 붙여 넣으면 문제 유형, 예상 난이도, 학교 기출과의 차이를 보여 줍니다. 붙여 넣은 문제는 이 브라우저 밖으로 보내지 않습니다.</p>
+<p>연습 문제를 많이 맞히면 시험 준비가 다 된 것처럼 느껴집니다. 그런데 저희 예비 조사에서 AI가 만든 예상문제는 정답은 거의 맞았지만, 대부분 교과서 문장을 그대로 묻는 개념 문제였습니다. 같은 단원의 기출은 약 80%가 &lt;보기&gt; ㄱ·ㄴ·ㄷ 합답형이고 약 90%가 자료 해석이나 계산 문제였습니다.</p>
+<p>이 점검표는 AI가 만든 문제마다 <b>문제 유형, 난이도, 정답률</b> 라벨을 붙여서, 그 세트의 연습 점수를 얼마나 믿어도 되는지 보여 줍니다.</p>
+<p class="small">붙여 넣은 문제는 이 브라우저 밖으로 보내지 않습니다.</p>
 
 <h2>1. 문제 붙여 넣기</h2>
-<label for="unit">단원 이름 (다시 요청 문장에 들어갑니다)</label>
+<label for="unit">단원 이름 (AI에게 보낼 요청 문장에 들어갑니다)</label>
 <input type="text" id="unit" placeholder="예: 통합과학2 화학 변화">
 <label for="base">비교할 기출 기준</label>
 <select id="base"></select>
 <p class="small">기준 파일이 따로 있으면 <input type="file" id="basefile" accept=".json,application/json"> · <a href="baseline.html">기출로 기준 만들기</a></p>
 <p class="small" id="basenote"></p>
+<details>
+  <summary>아직 문제를 받지 않았다면: AI에게 이렇게 요청해 보세요</summary>
+  <p class="small">"예상문제 만들어 줘"라고만 하면 개념 확인 문제가 대부분 나옵니다. 아래 문장은 기출 형식과 응용 문제를 함께 요청합니다. 단원 이름이나 기준을 바꾸면 문장도 바뀝니다.</p>
+  <textarea id="firstPrompt" readonly style="min-height:150px"></textarea>
+  <button class="copy" data-from="firstPrompt">문장 복사</button> <span class="small"></span>
+</details>
 <label for="raw">AI가 준 답 전체</label>
 <textarea id="raw" placeholder="AI 앱에서 받은 예상문제를 정답·해설까지 통째로 복사해서 붙여 넣으세요."></textarea>
 <button id="check">점검하기</button>
@@ -29,21 +37,23 @@
 <p class="err" id="err"></p>
 
 <div id="result" class="hidden">
-  <h2>2. 기출과 비교</h2>
+  <h2>2. 이 세트의 라벨</h2>
+  <p id="headline"></p>
+  <div id="selfBars"></div>
+  <p class="small" id="count"></p>
+  <table><thead><tr><th>번호</th><th>문제</th><th>문제 유형</th><th>예상 난이도</th><th>근거</th><th>예상 정답률</th></tr></thead><tbody id="rows"></tbody></table>
+  <p class="small">문제 유형과 난이도는 문장 속 표시(&lt;보기&gt;, 표·그래프, 단위가 붙은 숫자 등)를 보고 정한 추정값입니다. 예상 정답률은 기출에서 같은 유형 문항을 실제로 맞힌 비율의 평균입니다. 지어낸 숫자는 쓰지 않습니다. <span id="rateNote"></span></p>
+
+  <h2>3. 기출과 비교</h2>
   <p>기출과 닮은 정도 <span class="big" id="sim"></span> <span class="small">(100%면 기출과 비율이 같음)</span></p>
   <div id="bars"></div>
   <ul class="gaps" id="gaps"></ul>
   <p id="warn"></p>
 
-  <h2>3. 문항별 결과</h2>
-  <p class="small" id="count"></p>
-  <table><thead><tr><th>번호</th><th>문제</th><th>유형</th><th>예상 난이도</th><th>근거</th><th id="rateHead">기출 정답률</th></tr></thead><tbody id="rows"></tbody></table>
-  <p class="small">유형과 난이도는 문장 속 표시(&lt;보기&gt;, 표·그래프, 단위가 붙은 숫자 등)를 보고 정한 추정값입니다. 실제로 몇 명이 맞혔는지가 아닙니다. 기출 정답률은 기준에 학교 문항분석표 정답률이 들어 있을 때만 보입니다.</p>
-
   <h2>4. 다시 요청하기</h2>
   <p>아래 문장을 AI에게 보내고, 새로 받은 답을 1번 칸에 붙여 넣은 뒤 다시 점검하세요.</p>
   <textarea id="prompt" readonly style="min-height:150px"></textarea>
-  <button id="copy">문장 복사</button> <span class="small" id="copied"></span>
+  <button class="copy" data-from="prompt">문장 복사</button> <span class="small"></span>
   <table class="hidden" id="histTable"><thead><tr><th>점검</th><th>시각</th><th>문항 수</th><th>닮은 정도</th></tr></thead><tbody id="hist"></tbody>
     <tfoot><tr><td colspan="4"><button id="clearHist">기록 지우기</button></td></tr></tfoot></table>
 

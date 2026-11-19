@@ -168,20 +168,34 @@
     return { rows, similarity, shortages, warn: similarity != null && similarity < WARN_BELOW };
   }
 
-  // ---------- 다시 요청 문장 ----------
+  // ---------- AI에게 보낼 요청 문장 ----------
   // 기준에 있는 항목만 문항 수로 바꿔 넣는다 (객관식 16 + 서술형 4 기준).
-  function retryPrompt(base, unit) {
+  // 개념 확인 문제만 받지 않도록, 마지막 줄에서 응용 문제도 함께 요청한다.
+  function promptLines(base) {
     const nMC = 16, nEssay = 4, total = nMC + nEssay, count = (p, n) => Math.round((p || 0) * n);
-    const scope = (unit || "").trim() ? `${unit.trim()} 단원 범위로 ` : "같은 범위로 ";
-    const lines = [`방금 만든 예상문제는 실제 학교 시험과 형식이 달라. ${scope}시험 예상문제를 다시 만들어 줘.`,
-      `- 전체 ${total}문항 (객관식 ${nMC}문항은 보기 5개, 서술형 ${nEssay}문항), 문항마다 정답과 해설`];
+    const lines = [`- 전체 ${total}문항 (객관식 ${nMC}문항은 보기 5개, 서술형 ${nEssay}문항), 문항마다 정답과 해설`];
     if (base.hapdap != null) lines.push(`- 객관식 중 ${Math.max(1, count(base.hapdap, nMC))}문항 이상은 <보기>의 ㄱ, ㄴ, ㄷ 중 옳은 것을 모두 고르는 형식`);
     if (base.dataOrCalc != null) lines.push(`- ${Math.max(1, count(base.dataOrCalc, total))}문항 이상은 표, 그래프, 실험 결과를 해석하거나 계산해야 푸는 문제`);
     lines.push(base.type ? `- 교과서 문장을 그대로 묻는 단순 암기 문제는 ${count(base.type["개념 체크"], total)}문항 이하`
       : "- 교과서 문장을 그대로 묻는 단순 암기 문제는 최대한 줄이기");
     if (base.level) lines.push(`- 난이도는 ${["상", "중", "하"].map(v => `${v} ${count(base.level[v], total)}문항`).join(", ")} 정도`);
     lines.push("- 개념을 확인하는 문제만이 아니라, 개념을 새로운 상황에 적용하는 응용 문제도 섞기");
-    return lines.join("\n");
+    return lines;
+  }
+  // 처음 요청할 때: 단원 이름이 비어 있으면 ○○ 로 둔다
+  function firstPrompt(base, unit) {
+    const name = (unit || "").trim() || "○○";
+    return [`${name} 단원 범위로 학교 시험 예상문제를 만들어 줘. 실제 학교 시험 형식에 맞춰 줘.`, ...promptLines(base)].join("\n");
+  }
+  // 이미 받은 세트가 기출과 다를 때 같은 대화에 이어서 보낸다
+  function retryPrompt(base, unit) {
+    const scope = (unit || "").trim() ? `${unit.trim()} 단원 범위로 ` : "같은 범위로 ";
+    return [`방금 만든 예상문제는 실제 학교 시험과 형식이 달라. ${scope}시험 예상문제를 다시 만들어 줘.`, ...promptLines(base)].join("\n");
+  }
+
+  // 분포에서 가장 큰 칸 (같으면 앞의 것): { key, share }
+  function topOf(keys, dist) {
+    return keys.reduce((best, k) => (dist[k] || 0) > best.share ? { key: k, share: dist[k] } : best, { key: keys[0], share: dist[keys[0]] || 0 });
   }
 
   // ---------- 풀어 본 결과 ----------
@@ -220,6 +234,6 @@
     return { base, warning };
   }
 
-  const MC = { VERSION, CIRC, TYPES, LEVELS, DIMS, OTHER, parseAI, label, summarize, compare, retryPrompt, score, baseRate, makeBaseline, checkBaseline };
+  const MC = { VERSION, CIRC, TYPES, LEVELS, DIMS, OTHER, parseAI, label, summarize, topOf, compare, firstPrompt, retryPrompt, score, baseRate, makeBaseline, checkBaseline };
   if (typeof module !== "undefined" && module.exports) module.exports = MC; else root.MC = MC;
 })(typeof window !== "undefined" ? window : globalThis);
