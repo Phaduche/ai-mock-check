@@ -128,4 +128,21 @@ t("다시 요청 문장: 기준 숫자가 들어간다", () => {
   assert.ok(full.includes("난이도는 상 12문항, 중 8문항, 하 0문항 정도"));
 });
 
+t("처음 요청 문장: 단원 이름과 기준 숫자가 들어가고, 응용 문제도 함께 요청한다", () => {
+  const p = MC.firstPrompt(PILOT, " 통합과학2 화학 변화 ");
+  assert.ok(p.startsWith("통합과학2 화학 변화 단원 범위로 학교 시험 예상문제를 만들어 줘."));
+  assert.ok(p.includes(`${Math.round(PILOT.hapdap * 16)}문항 이상은 <보기>`));
+  assert.ok(p.includes("응용 문제도 섞기"));
+  assert.ok(MC.firstPrompt(PILOT, "").startsWith("○○ 단원 범위로"));
+  // 다시 요청 문장과 첫 줄만 다르다
+  assert.deepStrictEqual(p.split("\n").slice(1), MC.retryPrompt(PILOT, "x").split("\n").slice(1));
+});
+
+t("세트에서 가장 많은 칸: 처음 세트는 개념 체크·하, 다시 요청한 세트는 응용·상", () => {
+  const first = MC.summarize(MC.parseAI(window.SAMPLES.first)), retry = MC.summarize(MC.parseAI(window.SAMPLES.retry));
+  assert.deepStrictEqual([MC.topOf(MC.TYPES, first.type), MC.topOf(MC.LEVELS, first.level)], [{ key: "개념 체크", share: 0.65 }, { key: "하", share: 0.55 }]);
+  assert.deepStrictEqual([MC.topOf(MC.TYPES, retry.type).key, MC.topOf(MC.LEVELS, retry.level).key], ["응용", "상"]);
+  assert.deepStrictEqual(MC.topOf(["a", "b"], { a: 0.5, b: 0.5 }), { key: "a", share: 0.5 });   // 같으면 앞의 것
+});
+
 console.log(`\n${n}개 통과`);
